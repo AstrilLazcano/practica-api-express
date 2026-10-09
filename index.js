@@ -1,73 +1,115 @@
-// 1. Importar Express
+// index.js
+require('dotenv').config();
 const express = require('express');
-const app = express();
-const PORT = 3000;
+const db = require('./config/db');
 
-// 2. Middleware para parsear JSON
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware para parsear JSON
 app.use(express.json());
 
-// 3. Arreglo en memoria (entidad: catálogo de libros)
-let libros = [
-  { id: 1, nombre: 'Cien años de soledad', autor: 'Gabriel García Márquez' },
-  { id: 2, nombre: '1984', autor: 'George Orwell' },
-  { id: 3, nombre: 'El principito', autor: 'Antoine de Saint-Exupéry' }
-];
-
-// Variable para IDs dinámicos
-let nextId = 4;
-
-// 4. Ruta base
+// Ruta base
 app.get('/', (req, res) => {
-  res.send('Servidor en línea ✅');
+  res.send('Servidor en línea ✅ (conectado a MySQL)');
 });
 
-// 5. GET /api/recursos - Devuelve todos los libros
-app.get('/api/recursos', (req, res) => {
-  res.status(200).json(libros);
-});
-
-// 6. GET /api/recursos/:id - Devuelve un libro por ID
-app.get('/api/recursos/:id', (req, res) => {
-  const id = parseInt(req.params.id);
-  const libro = libros.find(l => l.id === id);
-  if (!libro) {
-    return res.status(404).json({ mensaje: 'Recurso no encontrado' });
+// ==========================================
+// GET /api/recursos - Obtener todos los libros
+// ==========================================
+app.get('/api/recursos', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM libros');
+    res.status(200).json(rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ mensaje: 'Error al obtener los libros', error: error.message });
   }
-  res.status(200).json(libro);
 });
 
-// 7. POST /api/recursos - Crea un nuevo libro
-app.post('/api/recursos', (req, res) => {
-  const { nombre, autor } = req.body;
-  const nuevoLibro = { id: nextId++, nombre, autor };
-  libros.push(nuevoLibro);
-  res.status(201).json(nuevoLibro);
-});
-
-// 8. PUT /api/recursos/:id - Actualiza un libro
-app.put('/api/recursos/:id', (req, res) => {
-  const id = parseInt(req.params.id);
-  const libro = libros.find(l => l.id === id);
-  if (!libro) {
-    return res.status(404).json({ mensaje: 'Recurso no encontrado' });
+// ==========================================
+// GET /api/recursos/:id - Obtener un libro por ID
+// ==========================================
+app.get('/api/recursos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await db.query('SELECT * FROM libros WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ mensaje: 'Recurso no encontrado' });
+    }
+    res.status(200).json(rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ mensaje: 'Error al buscar el libro', error: error.message });
   }
-  libro.nombre = req.body.nombre || libro.nombre;
-  libro.autor = req.body.autor || libro.autor;
-  res.status(200).json(libro);
 });
 
-// 9. DELETE /api/recursos/:id - Elimina un libro
-app.delete('/api/recursos/:id', (req, res) => {
-  const id = parseInt(req.params.id);
-  const index = libros.findIndex(l => l.id === id);
-  if (index === -1) {
-    return res.status(404).json({ mensaje: 'Recurso no encontrado' });
+// ==========================================
+// POST /api/recursos - Crear un nuevo libro
+// ==========================================
+app.post('/api/recursos', async (req, res) => {
+  try {
+    const { nombre, autor } = req.body;
+    if (!nombre || !autor) {
+      return res.status(400).json({ mensaje: 'nombre y autor son obligatorios' });
+    }
+    const [result] = await db.query(
+      'INSERT INTO libros (nombre, autor) VALUES (?, ?)',
+      [nombre, autor]
+    );
+    const [nuevo] = await db.query('SELECT * FROM libros WHERE id = ?', [result.insertId]);
+    res.status(201).json(nuevo[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ mensaje: 'Error al crear el libro', error: error.message });
   }
-  const eliminado = libros.splice(index, 1);
-  res.status(200).json({ mensaje: 'Recurso eliminado', libro: eliminado[0] });
 });
 
-// 10. Levantar el servidor
+// ==========================================
+// PUT /api/recursos/:id - Actualizar un libro
+// ==========================================
+app.put('/api/recursos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, autor } = req.body;
+
+    const [existe] = await db.query('SELECT * FROM libros WHERE id = ?', [id]);
+    if (existe.length === 0) {
+      return res.status(404).json({ mensaje: 'Recurso no encontrado' });
+    }
+
+    await db.query(
+      'UPDATE libros SET nombre = ?, autor = ? WHERE id = ?',
+      [nombre || existe[0].nombre, autor || existe[0].autor, id]
+    );
+
+    const [actualizado] = await db.query('SELECT * FROM libros WHERE id = ?', [id]);
+    res.status(200).json(actualizado[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ mensaje: 'Error al actualizar el libro', error: error.message });
+  }
+});
+
+// ==========================================
+// DELETE /api/recursos/:id - Eliminar un libro
+// ==========================================
+app.delete('/api/recursos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [existe] = await db.query('SELECT * FROM libros WHERE id = ?', [id]);
+    if (existe.length === 0) {
+      return res.status(404).json({ mensaje: 'Recurso no encontrado' });
+    }
+    await db.query('DELETE FROM libros WHERE id = ?', [id]);
+    res.status(200).json({ mensaje: 'Recurso eliminado', libro: existe[0] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ mensaje: 'Error al eliminar el libro', error: error.message });
+  }
+});
+
+// Levantar servidor
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
 });
