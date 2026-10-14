@@ -1,12 +1,14 @@
 // index.js
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');   // ← NUEVA LÍNEA
 const db = require('./config/db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware para parsear JSON
+// Middleware
+app.use(cors());                 // ← NUEVA LÍNEA: habilita CORS globalmente
 app.use(express.json());
 
 // Ruta base
